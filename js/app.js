@@ -1,8 +1,20 @@
 import { getPopularMovies, getGenres } from "./api.js";
 
 const moviesContainer = document.getElementById("movies");
+const filtersContainer = document.getElementById("filters");
 
 let genresList = [];
+let cachedMovies = [];
+let dataLoaded = false;
+let filtersInitialized = false;
+let scoringContext = null;
+
+const filtersState = {
+    genreId: "all",
+    minYear: "",
+    minRating: "",
+    language: "all"
+};
 let favorites = [];
 
 const FAVORITES_KEY = "favorites_v1";
@@ -14,66 +26,291 @@ function getGenreNames(genreIds) {
         .join(", ");
 }
 
+function getYear(movie) {
+    const year = movie.release_date?.split("-")[0];
+    return year ? Number(year) : 0;
+}
 
-// 🔹 Fonction de scoring personnalisée
-function calculateScore(movie) {
-    const analysis = analyzeMovie(movie);
+function getLanguageLabel(code) {
+    const map = {
+        fr: "Français",
+        en: "Anglais",
+        es: "Espagnol",
+        it: "Italien",
+        de: "Allemand",
+        ja: "Japonais",
+        ko: "Coréen",
+        zh: "Chinois"
+    };
 
-    let score = 0;
+    return map[code] || code?.toUpperCase() || "N/A";
+}
 
-    score += movie.vote_average * 3;
-    score += movie.popularity * 0.02;
+async function ensureData() {
+    if (dataLoaded) return;
 
-    if (analysis.isRecent) score += 5;
-    if (analysis.isWellRated) score += 5;
-    if (analysis.isPopular) score += 3;
+    cachedMovies = await getPopularMovies();
+    genresList = await getGenres();
+    computeScoringContext();
+    dataLoaded = true;
+    populateFilterOptions();
+}
 
-    return score;
+function computeScoringContext() {
+    if (!cachedMovies.length) {
+        scoringContext = null;
+        return;
+    }
+
+    const currentYear = new Date().getFullYear();
+
+    let maxPopularity = 0;
+    let maxVoteCount = 0;
+    let minYear = currentYear;
+    let maxYear = 1900;
+
+    cachedMovies.forEach(movie => {
+        if (typeof movie.popularity === "number") {
+            maxPopularity = Math.max(maxPopularity, movie.popularity);
+        }
+        if (typeof movie.vote_count === "number") {
+            maxVoteCount = Math.max(maxVoteCount, movie.vote_count);
+        }
+
+        const year = getYear(movie);
+        if (year) {
+            minYear = Math.min(minYear, year);
+            maxYear = Math.max(maxYear, year);
+        }
+    });
+
+    if (minYear > maxYear) {
+        minYear = maxYear;
+    }
+
+    scoringContext = {
+        currentYear,
+        maxPopularity: maxPopularity || 1,
+        maxVoteCount: maxVoteCount || 1,
+        minYear,
+        maxYear
+    };
+}
+
+function populateFilterOptions() {
+    if (!filtersContainer) return;
+
+    const genreSelect = filtersContainer.querySelector("#filter-genre");
+    const languageSelect = filtersContainer.querySelector("#filter-language");
+
+    if (genreSelect) {
+        const options = ["<option value=\"all\">Tous les genres</option>"];
+        genresList.forEach(genre => {
+            options.push(`<option value="${genre.id}">${genre.name}</option>`);
+        });
+        genreSelect.innerHTML = options.join("");
+        genreSelect.value = filtersState.genreId;
+    }
+
+    if (languageSelect) {
+        const codes = Array.from(
+            new Set(cachedMovies.map(movie => movie.original_language).filter(Boolean))
+        ).sort();
+
+        const options = ["<option value=\"all\">Toutes les langues</option>"];
+        codes.forEach(code => {
+            options.push(`<option value="${code}">${getLanguageLabel(code)}</option>`);
+        });
+        languageSelect.innerHTML = options.join("");
+        languageSelect.value = filtersState.language;
+    }
+}
+
+function setupFilters() {
+    if (!filtersContainer || filtersInitialized) return;
+
+    filtersContainer.innerHTML = `
+        <div class="filters">
+            <div class="filter-group">
+                <label for="filter-genre">Genre</label>
+                <select id="filter-genre"></select>
+            </div>
+            <div class="filter-group">
+                <label for="filter-year">Année minimum</label>
+                <input id="filter-year" type="number" min="1900" max="2100" placeholder="Ex: 2015">
+            </div>
+            <div class="filter-group">
+                <label for="filter-rating">Note minimum</label>
+                <input id="filter-rating" type="number" min="0" max="10" step="0.1" placeholder="Ex: 7.5">
+            </div>
+            <div class="filter-group">
+                <label for="filter-language">Langue</label>
+                <select id="filter-language"></select>
+            </div>
+            <button id="filter-clear" type="button">Réinitialiser</button>
+        </div>
+    `;
+
+    const genreSelect = filtersContainer.querySelector("#filter-genre");
+    const yearInput = filtersContainer.querySelector("#filter-year");
+    const ratingInput = filtersContainer.querySelector("#filter-rating");
+    const languageSelect = filtersContainer.querySelector("#filter-language");
+    const clearButton = filtersContainer.querySelector("#filter-clear");
+
+    yearInput.value = filtersState.minYear;
+    ratingInput.value = filtersState.minRating;
+
+    genreSelect.addEventListener("change", () => {
+        filtersState.genreId = genreSelect.value;
+        renderByRoute();
+    });
+
+    languageSelect.addEventListener("change", () => {
+        filtersState.language = languageSelect.value;
+        renderByRoute();
+    });
+
+    yearInput.addEventListener("input", () => {
+        filtersState.minYear = yearInput.value;
+        renderByRoute();
+    });
+
+    ratingInput.addEventListener("input", () => {
+        filtersState.minRating = ratingInput.value;
+        renderByRoute();
+    });
+
+    clearButton.addEventListener("click", () => {
+        filtersState.genreId = "all";
+        filtersState.minYear = "";
+        filtersState.minRating = "";
+        filtersState.language = "all";
+
+        yearInput.value = "";
+        ratingInput.value = "";
+
+        populateFilterOptions();
+        renderByRoute();
+    });
+
+    filtersInitialized = true;
+    populateFilterOptions();
+}
+
+function applyFilters(movies) {
+    const genreId = filtersState.genreId !== "all" ? Number(filtersState.genreId) : null;
+    const minYear = filtersState.minYear ? Number(filtersState.minYear) : null;
+    const minRating = filtersState.minRating ? Number(filtersState.minRating) : null;
+    const language = filtersState.language !== "all" ? filtersState.language : null;
+
+    return movies.filter(movie => {
+        if (genreId && !movie.genre_ids?.includes(genreId)) return false;
+        if (minYear && getYear(movie) < minYear) return false;
+        if (minRating && movie.vote_average < minRating) return false;
+        if (language && movie.original_language !== language) return false;
+        return true;
+    });
+}
+
+function renderNoResults() {
+    moviesContainer.innerHTML = `
+        <div class="no-results">
+            <h3>Aucun film ne correspond à ces critères.</h3>
+            <p>Essayez d'élargir vos filtres.</p>
+        </div>
+    `;
+}
+
+function renderByRoute() {
+    const route = window.location.hash;
+
+    if (route === "#classement") {
+        displayRanking();
+    } else {
+        displayMovies();
+    }
 }
 
 
-// Fournit une explication lisible du score en indiquant les facteurs dominants
-function explainScore(movie) {
-    const analysis = analyzeMovie(movie);
-    const parts = [];
+// 🔹 Fonction de scoring personnalisée (note, popularité, récence, nombre de votes)
+function calculateScore(movie) {
+    if (!scoringContext) {
+        computeScoringContext();
+    }
 
-    const votePart = movie.vote_average ? movie.vote_average * 3 : 0;
-    parts.push({ key: 'Note', value: votePart, desc: `Note (${movie.vote_average ?? 'N/A'}) × 3 = ${votePart.toFixed(2)}` });
+    const { maxPopularity, maxVoteCount, minYear, maxYear } = scoringContext || {};
 
-    const popPart = movie.popularity ? movie.popularity * 0.02 : 0;
-    parts.push({ key: 'Popularité', value: popPart, desc: `Popularité (${movie.popularity?.toFixed(1) ?? 'N/A'}) × 0.02 = ${popPart.toFixed(2)}` });
+    const rating = typeof movie.vote_average === "number" ? movie.vote_average : 0;
+    const popularity = typeof movie.popularity === "number" ? movie.popularity : 0;
+    const voteCount = typeof movie.vote_count === "number" ? movie.vote_count : 0;
+    const year = getYear(movie);
 
-    if (analysis.isRecent) parts.push({ key: 'Récence', value: 5, desc: 'Film récent (sorti ≥ 2020) : +5' });
-    if (analysis.isWellRated) parts.push({ key: 'Bonne note', value: 5, desc: 'Bonne note (≥ 7) : +5' });
-    if (analysis.isPopular) parts.push({ key: 'Tendance', value: 3, desc: 'Très populaire : +3' });
+    // Normalisation des différentes métriques entre 0 et 1
+    const normalizedRating = rating / 10; // note sur 10
 
-    const total = parts.reduce((s, p) => s + p.value, 0);
+    const normalizedPopularity =
+        maxPopularity && maxPopularity > 0 ? Math.min(popularity / maxPopularity, 1) : 0;
 
-    // Trier par contribution décroissante et garder les 2-3 principaux facteurs
-    const sorted = parts.slice().sort((a, b) => b.value - a.value);
-    const top = sorted.slice(0, 3);
+    const normalizedVotes =
+        maxVoteCount && maxVoteCount > 0
+            ? Math.log10(voteCount + 1) / Math.log10(maxVoteCount + 1)
+            : 0;
 
-    // Construire une justification en français
-    const topTexts = top.map((p, i) => `${i + 1}. ${p.key} — ${p.desc}`);
+    let normalizedRecency = 0;
+    if (year) {
+        const span = Math.max(maxYear - minYear, 1);
+        normalizedRecency = (year - minYear) / span;
+    }
 
-    const explanation = `Score estimé : ${total.toFixed(2)}. Principaux facteurs : ${top.map(p => p.key).join(', ')}.`;
-    const details = topTexts.join(' | ');
+    // Pondérations : la note pèse davantage que le reste
+    const weights = {
+        rating: 0.4,
+        popularity: 0.25,
+        recency: 0.2,
+        votes: 0.15
+    };
 
-    return { explanation, details, total };
+    const score =
+        normalizedRating * weights.rating +
+        normalizedPopularity * weights.popularity +
+        normalizedRecency * weights.recency +
+        normalizedVotes * weights.votes;
+
+    // On remet le score sur une échelle 0–100 pour lecture humaine
+    return score * 100;
 }
 
 
 function analyzeMovie(movie) {
-    const year = movie.release_date?.split("-")[0];
-    const isRecent = year >= 2020;
-    const isPopular = movie.popularity > 100;
-    const isWellRated = movie.vote_average >= 7;
+    const year = getYear(movie);
+
+    const ctx = scoringContext;
+    const rating = typeof movie.vote_average === "number" ? movie.vote_average : 0;
+    const popularity = typeof movie.popularity === "number" ? movie.popularity : 0;
+    const voteCount = typeof movie.vote_count === "number" ? movie.vote_count : 0;
+
+    const currentYear = new Date().getFullYear();
+
+    const isRecent = ctx
+        ? year && year >= ctx.maxYear - 3
+        : year && year >= currentYear - 3;
+
+    const isPopular = ctx
+        ? popularity >= ctx.maxPopularity * 0.6
+        : popularity > 100;
+
+    const isWellRated = rating >= 7;
+
+    const hasManyVotes = ctx
+        ? voteCount >= ctx.maxVoteCount * 0.5
+        : voteCount >= 1000;
 
     return {
-        year,
-        isRecent,
-        isPopular,
-        isWellRated
+        year: year || "N/A",
+        isRecent: Boolean(isRecent),
+        isPopular: Boolean(isPopular),
+        isWellRated,
+        hasManyVotes
     };
 }
 
@@ -169,13 +406,24 @@ loadFavorites();
 
 // 🔹 Affichage simple
 export async function displayMovies() {
-    const movies = await getPopularMovies();
-    genresList = await getGenres();
+    await ensureData();
+    setupFilters();
+
+    const movies = applyFilters(cachedMovies);
 
     moviesContainer.innerHTML = "";
 
+    if (movies.length === 0) {
+        renderNoResults();
+        return;
+    }
+
     movies.forEach(movie => {
         const analysis = analyzeMovie(movie);
+        const votesLabel =
+            typeof movie.vote_count === "number"
+                ? movie.vote_count.toLocaleString("fr-FR")
+                : "N/A";
 
         const posterUrl = movie.poster_path
             ? `https://image.tmdb.org/t/p/w342${movie.poster_path}`
@@ -193,6 +441,8 @@ export async function displayMovies() {
                 <h3>${movie.title}</h3>
                 <p>Année : ${analysis.year}</p>
                 <p>Note : ${movie.vote_average}</p>
+                <p>Langue : ${getLanguageLabel(movie.original_language)}</p>
+                <p>Votes : ${votesLabel}</p>
             </div>
         `;
 
@@ -219,15 +469,26 @@ export async function displayMovies() {
 
 // 🔹 Classement personnalisé avec scoring
 export async function displayRanking() {
-    const movies = await getPopularMovies();
-    genresList = await getGenres();
+    await ensureData();
+    setupFilters();
+
+    const movies = applyFilters(cachedMovies);
 
     movies.sort((a, b) => calculateScore(b) - calculateScore(a));
 
     moviesContainer.innerHTML = "<h2>Classement personnalisé</h2>";
 
+    if (movies.length === 0) {
+        renderNoResults();
+        return;
+    }
+
     movies.forEach((movie, index) => {
         const analysis = analyzeMovie(movie);
+        const votesLabel =
+            typeof movie.vote_count === "number"
+                ? movie.vote_count.toLocaleString("fr-FR")
+                : "N/A";
 
         const posterUrl = movie.poster_path
             ? `https://image.tmdb.org/t/p/w342${movie.poster_path}`
@@ -244,6 +505,13 @@ export async function displayRanking() {
                 <h3>${index + 1}. ${movie.title}</h3>
                 <p>Score : ${calculateScore(movie).toFixed(2)}</p>
                 <p>Année : ${analysis.year}</p>
+                <p>Langue : ${getLanguageLabel(movie.original_language)}</p>
+                <p>Note : ${
+                    typeof movie.vote_average === "number"
+                        ? movie.vote_average.toFixed(1)
+                        : "N/A"
+                }</p>
+                <p>Votes : ${votesLabel}</p>
             </div>
         `;
 

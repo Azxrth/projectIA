@@ -38,6 +38,64 @@ nav a:hover {
     color: #fff;
 }
 
+/* Filtres */
+#filters {
+    margin: 0 auto 30px;
+    max-width: 1100px;
+}
+
+.filters {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 16px;
+    align-items: end;
+    background: #1c1c1c;
+    padding: 16px;
+    border-radius: 12px;
+    box-shadow: 0 10px 25px rgba(0,0,0,0.35);
+}
+
+.filter-group {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.filter-group label {
+    font-size: 0.85rem;
+    color: #bbb;
+}
+
+.filters input,
+.filters select {
+    background: #111;
+    color: #fff;
+    border: 1px solid #333;
+    border-radius: 8px;
+    padding: 8px 10px;
+    font-size: 0.9rem;
+}
+
+.filters input:focus,
+.filters select:focus {
+    outline: none;
+    border-color: #666;
+}
+
+#filter-clear {
+    background: #333;
+    color: #fff;
+    border: none;
+    border-radius: 8px;
+    padding: 10px 12px;
+    cursor: pointer;
+    transition: background 0.2s ease;
+}
+
+#filter-clear:hover {
+    background: #444;
+}
+
 /* Container des films */
 #movies {
     display: grid;
@@ -147,6 +205,20 @@ hr {
 
 .movie-info p {
     font-size: 0.8rem;
+    color: #aaa;
+}
+
+.no-results {
+    grid-column: 1 / -1;
+    background: #1c1c1c;
+    padding: 30px;
+    border-radius: 12px;
+    text-align: center;
+    color: #ddd;
+}
+
+.no-results p {
+    margin-top: 8px;
     color: #aaa;
 }
 
