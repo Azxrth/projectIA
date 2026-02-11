@@ -9,6 +9,20 @@ let dataLoaded = false;
 let filtersInitialized = false;
 let scoringContext = null;
 
+const BASE_WEIGHTS = {
+    rating: 0.4,
+    popularity: 0.25,
+    recency: 0.2,
+    votes: 0.15
+};
+
+// Valeurs des sliders (0–100). 50 = importance "normale".
+const weightState = {
+    rating: 50,
+    popularity: 50,
+    recency: 50
+};
+
 const filtersState = {
     genreId: "all",
     minYear: "",
@@ -145,6 +159,24 @@ function setupFilters() {
                 <select id="filter-language"></select>
             </div>
             <button id="filter-clear" type="button">Réinitialiser</button>
+            <div class="weights-panel">
+                <h3>Pondération du score</h3>
+                <div class="weight-row">
+                    <label for="weight-rating">Note</label>
+                    <input id="weight-rating" type="range" min="0" max="100" step="25" value="50">
+                    <span class="weight-value" data-weight-label="rating"></span>
+                </div>
+                <div class="weight-row">
+                    <label for="weight-popularity">Popularité</label>
+                    <input id="weight-popularity" type="range" min="0" max="100" step="25" value="50">
+                    <span class="weight-value" data-weight-label="popularity"></span>
+                </div>
+                <div class="weight-row">
+                    <label for="weight-recency">Récence</label>
+                    <input id="weight-recency" type="range" min="0" max="100" step="25" value="50">
+                    <span class="weight-value" data-weight-label="recency"></span>
+                </div>
+            </div>
         </div>
     `;
 
@@ -153,6 +185,10 @@ function setupFilters() {
     const ratingInput = filtersContainer.querySelector("#filter-rating");
     const languageSelect = filtersContainer.querySelector("#filter-language");
     const clearButton = filtersContainer.querySelector("#filter-clear");
+    const weightRatingInput = filtersContainer.querySelector("#weight-rating");
+    const weightPopularityInput = filtersContainer.querySelector("#weight-popularity");
+    const weightRecencyInput = filtersContainer.querySelector("#weight-recency");
+    const weightLabels = filtersContainer.querySelectorAll(".weight-value");
 
     yearInput.value = filtersState.minYear;
     ratingInput.value = filtersState.minRating;
@@ -176,6 +212,46 @@ function setupFilters() {
         filtersState.minRating = ratingInput.value;
         renderByRoute();
     });
+
+    const syncWeightsUI = () => {
+        if (!weightRatingInput || !weightPopularityInput || !weightRecencyInput) return;
+
+        weightRatingInput.value = String(weightState.rating);
+        weightPopularityInput.value = String(weightState.popularity);
+        weightRecencyInput.value = String(weightState.recency);
+
+        weightLabels.forEach(label => {
+            const key = label.dataset.weightLabel;
+            const rawValue = weightState[key];
+            const percent = Math.round(rawValue); // déjà sur 0–100
+
+            let text = `${percent}%`;
+            if (key === "rating") text += " note";
+            else if (key === "popularity") text += " popul.";
+            else if (key === "recency") text += " récence";
+
+            label.textContent = text;
+        });
+    };
+
+    const handleWeightsChange = () => {
+        if (!weightRatingInput || !weightPopularityInput || !weightRecencyInput) return;
+
+        weightState.rating = Number(weightRatingInput.value);
+        weightState.popularity = Number(weightPopularityInput.value);
+        weightState.recency = Number(weightRecencyInput.value);
+
+        syncWeightsUI();
+        renderByRoute();
+    };
+
+    syncWeightsUI();
+
+    if (weightRatingInput && weightPopularityInput && weightRecencyInput) {
+        weightRatingInput.addEventListener("input", handleWeightsChange);
+        weightPopularityInput.addEventListener("input", handleWeightsChange);
+        weightRecencyInput.addEventListener("input", handleWeightsChange);
+    }
 
     clearButton.addEventListener("click", () => {
         filtersState.genreId = "all";
@@ -258,13 +334,20 @@ function calculateScore(movie) {
         const span = Math.max(maxYear - minYear, 1);
         normalizedRecency = (year - minYear) / span;
     }
+    // Conversion des sliders (0–100) en multiplicateurs ~[0, 2]
+    const multipliers = {
+        rating: weightState.rating / 50 || 0,
+        popularity: weightState.popularity / 50 || 0,
+        recency: weightState.recency / 50 || 0
+    };
 
-    // Pondérations : la note pèse davantage que le reste
+    // Pondérations de base modulées par l'utilisateur
     const weights = {
-        rating: 0.4,
-        popularity: 0.25,
-        recency: 0.2,
-        votes: 0.15
+        rating: BASE_WEIGHTS.rating * multipliers.rating,
+        popularity: BASE_WEIGHTS.popularity * multipliers.popularity,
+        recency: BASE_WEIGHTS.recency * multipliers.recency,
+        // le poids des votes reste fixe, pour garder un minimum de fiabilité
+        votes: BASE_WEIGHTS.votes
     };
 
     const score =
