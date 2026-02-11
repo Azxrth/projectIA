@@ -1,14 +1,188 @@
 import { getPopularMovies, getGenres } from "./api.js";
 
 const moviesContainer = document.getElementById("movies");
+const filtersContainer = document.getElementById("filters");
 
 let genresList = [];
+let cachedMovies = [];
+let dataLoaded = false;
+let filtersInitialized = false;
+
+const filtersState = {
+    genreId: "all",
+    minYear: "",
+    minRating: "",
+    language: "all"
+};
 
 function getGenreNames(genreIds) {
     return genreIds
         .map(id => genresList.find(g => g.id === id)?.name)
         .filter(Boolean)
         .join(", ");
+}
+
+function getYear(movie) {
+    const year = movie.release_date?.split("-")[0];
+    return year ? Number(year) : 0;
+}
+
+function getLanguageLabel(code) {
+    const map = {
+        fr: "Français",
+        en: "Anglais",
+        es: "Espagnol",
+        it: "Italien",
+        de: "Allemand",
+        ja: "Japonais",
+        ko: "Coréen",
+        zh: "Chinois"
+    };
+
+    return map[code] || code?.toUpperCase() || "N/A";
+}
+
+async function ensureData() {
+    if (dataLoaded) return;
+
+    cachedMovies = await getPopularMovies();
+    genresList = await getGenres();
+    dataLoaded = true;
+    populateFilterOptions();
+}
+
+function populateFilterOptions() {
+    if (!filtersContainer) return;
+
+    const genreSelect = filtersContainer.querySelector("#filter-genre");
+    const languageSelect = filtersContainer.querySelector("#filter-language");
+
+    if (genreSelect) {
+        const options = ["<option value=\"all\">Tous les genres</option>"];
+        genresList.forEach(genre => {
+            options.push(`<option value="${genre.id}">${genre.name}</option>`);
+        });
+        genreSelect.innerHTML = options.join("");
+        genreSelect.value = filtersState.genreId;
+    }
+
+    if (languageSelect) {
+        const codes = Array.from(
+            new Set(cachedMovies.map(movie => movie.original_language).filter(Boolean))
+        ).sort();
+
+        const options = ["<option value=\"all\">Toutes les langues</option>"];
+        codes.forEach(code => {
+            options.push(`<option value="${code}">${getLanguageLabel(code)}</option>`);
+        });
+        languageSelect.innerHTML = options.join("");
+        languageSelect.value = filtersState.language;
+    }
+}
+
+function setupFilters() {
+    if (!filtersContainer || filtersInitialized) return;
+
+    filtersContainer.innerHTML = `
+        <div class="filters">
+            <div class="filter-group">
+                <label for="filter-genre">Genre</label>
+                <select id="filter-genre"></select>
+            </div>
+            <div class="filter-group">
+                <label for="filter-year">Année minimum</label>
+                <input id="filter-year" type="number" min="1900" max="2100" placeholder="Ex: 2015">
+            </div>
+            <div class="filter-group">
+                <label for="filter-rating">Note minimum</label>
+                <input id="filter-rating" type="number" min="0" max="10" step="0.1" placeholder="Ex: 7.5">
+            </div>
+            <div class="filter-group">
+                <label for="filter-language">Langue</label>
+                <select id="filter-language"></select>
+            </div>
+            <button id="filter-clear" type="button">Réinitialiser</button>
+        </div>
+    `;
+
+    const genreSelect = filtersContainer.querySelector("#filter-genre");
+    const yearInput = filtersContainer.querySelector("#filter-year");
+    const ratingInput = filtersContainer.querySelector("#filter-rating");
+    const languageSelect = filtersContainer.querySelector("#filter-language");
+    const clearButton = filtersContainer.querySelector("#filter-clear");
+
+    yearInput.value = filtersState.minYear;
+    ratingInput.value = filtersState.minRating;
+
+    genreSelect.addEventListener("change", () => {
+        filtersState.genreId = genreSelect.value;
+        renderByRoute();
+    });
+
+    languageSelect.addEventListener("change", () => {
+        filtersState.language = languageSelect.value;
+        renderByRoute();
+    });
+
+    yearInput.addEventListener("input", () => {
+        filtersState.minYear = yearInput.value;
+        renderByRoute();
+    });
+
+    ratingInput.addEventListener("input", () => {
+        filtersState.minRating = ratingInput.value;
+        renderByRoute();
+    });
+
+    clearButton.addEventListener("click", () => {
+        filtersState.genreId = "all";
+        filtersState.minYear = "";
+        filtersState.minRating = "";
+        filtersState.language = "all";
+
+        yearInput.value = "";
+        ratingInput.value = "";
+
+        populateFilterOptions();
+        renderByRoute();
+    });
+
+    filtersInitialized = true;
+    populateFilterOptions();
+}
+
+function applyFilters(movies) {
+    const genreId = filtersState.genreId !== "all" ? Number(filtersState.genreId) : null;
+    const minYear = filtersState.minYear ? Number(filtersState.minYear) : null;
+    const minRating = filtersState.minRating ? Number(filtersState.minRating) : null;
+    const language = filtersState.language !== "all" ? filtersState.language : null;
+
+    return movies.filter(movie => {
+        if (genreId && !movie.genre_ids?.includes(genreId)) return false;
+        if (minYear && getYear(movie) < minYear) return false;
+        if (minRating && movie.vote_average < minRating) return false;
+        if (language && movie.original_language !== language) return false;
+        return true;
+    });
+}
+
+function renderNoResults() {
+    moviesContainer.innerHTML = `
+        <div class="no-results">
+            <h3>Aucun film ne correspond à ces critères.</h3>
+            <p>Essayez d'élargir vos filtres.</p>
+        </div>
+    `;
+}
+
+function renderByRoute() {
+    const route = window.location.hash;
+
+    if (route === "#classement") {
+        displayRanking();
+    } else {
+        displayMovies();
+    }
 }
 
 
@@ -46,10 +220,17 @@ function analyzeMovie(movie) {
 
 // 🔹 Affichage simple
 export async function displayMovies() {
-    const movies = await getPopularMovies();
-    genresList = await getGenres();
+    await ensureData();
+    setupFilters();
+
+    const movies = applyFilters(cachedMovies);
 
     moviesContainer.innerHTML = "";
+
+    if (movies.length === 0) {
+        renderNoResults();
+        return;
+    }
 
     movies.forEach(movie => {
         const analysis = analyzeMovie(movie);
@@ -69,6 +250,7 @@ export async function displayMovies() {
                 <h3>${movie.title}</h3>
                 <p>Année : ${analysis.year}</p>
                 <p>Note : ${movie.vote_average}</p>
+                <p>Langue : ${getLanguageLabel(movie.original_language)}</p>
             </div>
         `;
 
@@ -79,12 +261,19 @@ export async function displayMovies() {
 
 // 🔹 Classement personnalisé avec scoring
 export async function displayRanking() {
-    const movies = await getPopularMovies();
-    genresList = await getGenres();
+    await ensureData();
+    setupFilters();
+
+    const movies = applyFilters(cachedMovies);
 
     movies.sort((a, b) => calculateScore(b) - calculateScore(a));
 
     moviesContainer.innerHTML = "<h2>Classement personnalisé</h2>";
+
+    if (movies.length === 0) {
+        renderNoResults();
+        return;
+    }
 
     movies.forEach((movie, index) => {
         const analysis = analyzeMovie(movie);
@@ -104,6 +293,7 @@ export async function displayRanking() {
                 <h3>${index + 1}. ${movie.title}</h3>
                 <p>Score : ${calculateScore(movie).toFixed(2)}</p>
                 <p>Année : ${analysis.year}</p>
+                <p>Langue : ${getLanguageLabel(movie.original_language)}</p>
             </div>
         `;
 
