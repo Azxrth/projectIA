@@ -7,6 +7,7 @@ let genresList = [];
 let cachedMovies = [];
 let dataLoaded = false;
 let filtersInitialized = false;
+let scoringContext = null;
 
 const filtersState = {
     genreId: "all",
@@ -47,8 +48,50 @@ async function ensureData() {
 
     cachedMovies = await getPopularMovies();
     genresList = await getGenres();
+    computeScoringContext();
     dataLoaded = true;
     populateFilterOptions();
+}
+
+function computeScoringContext() {
+    if (!cachedMovies.length) {
+        scoringContext = null;
+        return;
+    }
+
+    const currentYear = new Date().getFullYear();
+
+    let maxPopularity = 0;
+    let maxVoteCount = 0;
+    let minYear = currentYear;
+    let maxYear = 1900;
+
+    cachedMovies.forEach(movie => {
+        if (typeof movie.popularity === "number") {
+            maxPopularity = Math.max(maxPopularity, movie.popularity);
+        }
+        if (typeof movie.vote_count === "number") {
+            maxVoteCount = Math.max(maxVoteCount, movie.vote_count);
+        }
+
+        const year = getYear(movie);
+        if (year) {
+            minYear = Math.min(minYear, year);
+            maxYear = Math.max(maxYear, year);
+        }
+    });
+
+    if (minYear > maxYear) {
+        minYear = maxYear;
+    }
+
+    scoringContext = {
+        currentYear,
+        maxPopularity: maxPopularity || 1,
+        maxVoteCount: maxVoteCount || 1,
+        minYear,
+        maxYear
+    };
 }
 
 function populateFilterOptions() {
@@ -186,34 +229,84 @@ function renderByRoute() {
 }
 
 
-// 🔹 Fonction de scoring personnalisée
+// 🔹 Fonction de scoring personnalisée (note, popularité, récence, nombre de votes)
 function calculateScore(movie) {
-    const analysis = analyzeMovie(movie);
+    if (!scoringContext) {
+        computeScoringContext();
+    }
 
-    let score = 0;
+    const { maxPopularity, maxVoteCount, minYear, maxYear } = scoringContext || {};
 
-    score += movie.vote_average * 3;
-    score += movie.popularity * 0.02;
+    const rating = typeof movie.vote_average === "number" ? movie.vote_average : 0;
+    const popularity = typeof movie.popularity === "number" ? movie.popularity : 0;
+    const voteCount = typeof movie.vote_count === "number" ? movie.vote_count : 0;
+    const year = getYear(movie);
 
-    if (analysis.isRecent) score += 5;
-    if (analysis.isWellRated) score += 5;
-    if (analysis.isPopular) score += 3;
+    // Normalisation des différentes métriques entre 0 et 1
+    const normalizedRating = rating / 10; // note sur 10
 
-    return score;
+    const normalizedPopularity =
+        maxPopularity && maxPopularity > 0 ? Math.min(popularity / maxPopularity, 1) : 0;
+
+    const normalizedVotes =
+        maxVoteCount && maxVoteCount > 0
+            ? Math.log10(voteCount + 1) / Math.log10(maxVoteCount + 1)
+            : 0;
+
+    let normalizedRecency = 0;
+    if (year) {
+        const span = Math.max(maxYear - minYear, 1);
+        normalizedRecency = (year - minYear) / span;
+    }
+
+    // Pondérations : la note pèse davantage que le reste
+    const weights = {
+        rating: 0.4,
+        popularity: 0.25,
+        recency: 0.2,
+        votes: 0.15
+    };
+
+    const score =
+        normalizedRating * weights.rating +
+        normalizedPopularity * weights.popularity +
+        normalizedRecency * weights.recency +
+        normalizedVotes * weights.votes;
+
+    // On remet le score sur une échelle 0–100 pour lecture humaine
+    return score * 100;
 }
 
-
 function analyzeMovie(movie) {
-    const year = movie.release_date?.split("-")[0];
-    const isRecent = year >= 2020;
-    const isPopular = movie.popularity > 100;
-    const isWellRated = movie.vote_average >= 7;
+    const year = getYear(movie);
+
+    const ctx = scoringContext;
+    const rating = typeof movie.vote_average === "number" ? movie.vote_average : 0;
+    const popularity = typeof movie.popularity === "number" ? movie.popularity : 0;
+    const voteCount = typeof movie.vote_count === "number" ? movie.vote_count : 0;
+
+    const currentYear = new Date().getFullYear();
+
+    const isRecent = ctx
+        ? year && year >= ctx.maxYear - 3
+        : year && year >= currentYear - 3;
+
+    const isPopular = ctx
+        ? popularity >= ctx.maxPopularity * 0.6
+        : popularity > 100;
+
+    const isWellRated = rating >= 7;
+
+    const hasManyVotes = ctx
+        ? voteCount >= ctx.maxVoteCount * 0.5
+        : voteCount >= 1000;
 
     return {
-        year,
-        isRecent,
-        isPopular,
-        isWellRated
+        year: year || "N/A",
+        isRecent: Boolean(isRecent),
+        isPopular: Boolean(isPopular),
+        isWellRated,
+        hasManyVotes
     };
 }
 
@@ -234,6 +327,10 @@ export async function displayMovies() {
 
     movies.forEach(movie => {
         const analysis = analyzeMovie(movie);
+        const votesLabel =
+            typeof movie.vote_count === "number"
+                ? movie.vote_count.toLocaleString("fr-FR")
+                : "N/A";
 
         const posterUrl = movie.poster_path
             ? `https://image.tmdb.org/t/p/w342${movie.poster_path}`
@@ -251,6 +348,7 @@ export async function displayMovies() {
                 <p>Année : ${analysis.year}</p>
                 <p>Note : ${movie.vote_average}</p>
                 <p>Langue : ${getLanguageLabel(movie.original_language)}</p>
+                <p>Votes : ${votesLabel}</p>
             </div>
         `;
 
@@ -277,6 +375,10 @@ export async function displayRanking() {
 
     movies.forEach((movie, index) => {
         const analysis = analyzeMovie(movie);
+        const votesLabel =
+            typeof movie.vote_count === "number"
+                ? movie.vote_count.toLocaleString("fr-FR")
+                : "N/A";
 
         const posterUrl = movie.poster_path
             ? `https://image.tmdb.org/t/p/w342${movie.poster_path}`
@@ -294,6 +396,12 @@ export async function displayRanking() {
                 <p>Score : ${calculateScore(movie).toFixed(2)}</p>
                 <p>Année : ${analysis.year}</p>
                 <p>Langue : ${getLanguageLabel(movie.original_language)}</p>
+                <p>Note : ${
+                    typeof movie.vote_average === "number"
+                        ? movie.vote_average.toFixed(1)
+                        : "N/A"
+                }</p>
+                <p>Votes : ${votesLabel}</p>
             </div>
         `;
 
