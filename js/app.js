@@ -397,6 +397,40 @@ function analyzeMovie(movie) {
     };
 }
 
+function explainScore(movie) {
+    const score = calculateScore(movie);
+    const analysis = analyzeMovie(movie);
+
+    let explanation = "";
+    let details = "";
+
+    if (score >= 80) {
+        explanation = "Film hautement recommandé ⭐";
+        const reasons = [];
+        if (analysis.isWellRated) reasons.push("très bonne note");
+        if (analysis.isRecent) reasons.push("récent");
+        if (analysis.isPopular) reasons.push("populaire");
+        if (analysis.hasManyVotes) reasons.push("beaucoup de votes");
+        details = reasons.length > 0 ? `(${reasons.join(", ")})` : "";
+    } else if (score >= 60) {
+        explanation = "Film recommandé 👍";
+        const reasons = [];
+        if (analysis.isWellRated) reasons.push("bonne note");
+        if (analysis.isPopular) reasons.push("populaire");
+        details = reasons.length > 0 ? `(${reasons.join(", ")})` : "";
+    } else if (score >= 40) {
+        explanation = "Film intéressant 📽️";
+        details = "";
+    } else {
+        explanation = "Film à vérifier 🔍";
+        details = "";
+    }
+
+    return {
+        explanation: explanation,
+        details: details
+    };
+}
 
 // --- Favorites persistence and sync ---
 function loadFavorites() {
