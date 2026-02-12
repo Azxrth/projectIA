@@ -272,3 +272,99 @@ hr {
     color: #9a9a9a;
     font-size: 0.7rem;
 }
+/* Comparateur de films */
+#comparator {
+    margin: 40px auto;
+    max-width: 1200px;
+    background: #1c1c1c;
+    padding: 30px;
+    border-radius: 12px;
+    box-shadow: 0 10px 25px rgba(0,0,0,0.35);
+}
+
+#comparator h2 {
+    margin-bottom: 20px;
+    font-size: 1.5rem;
+    color: #fff;
+}
+
+.comparison-table {
+    width: 100%;
+    border-collapse: collapse;
+    background: #111;
+    border-radius: 8px;
+    overflow: hidden;
+}
+
+.comparison-table th,
+.comparison-table td {
+    padding: 12px 15px;
+    text-align: left;
+    border-bottom: 1px solid #333;
+}
+
+.comparison-table th {
+    background: #252525;
+    font-weight: bold;
+    color: #e0e0e0;
+}
+
+.comparison-table tr:last-child td {
+    border-bottom: none;
+}
+
+.comparison-table .property-label {
+    background: #1a1a1a;
+    font-weight: 600;
+    color: #bbb;
+    min-width: 150px;
+}
+
+.comparison-table td {
+    color: #ccc;
+}
+
+.comparison-title {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 10px;
+}
+
+.remove-comparison {
+    background: rgba(255,0,0,0.2);
+    border: 1px solid rgba(255,0,0,0.4);
+    color: #ff6b6b;
+    padding: 4px 8px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-weight: bold;
+    transition: all 0.2s ease;
+}
+
+.remove-comparison:hover {
+    background: rgba(255,0,0,0.4);
+    border-color: rgba(255,0,0,0.7);
+}
+
+/* Checkbox de comparaison */
+.comparison-checkbox {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-top: 10px;
+    padding: 6px 0;
+    cursor: pointer;
+    user-select: none;
+    color: #aaa;
+    font-size: 0.85rem;
+}
+
+.comparison-checkbox input[type="checkbox"] {
+    accent-color: #e50914;
+    cursor: pointer;
+}
+
+.comparison-checkbox:hover {
+    color: #fff;
+}

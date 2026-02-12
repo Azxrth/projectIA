@@ -30,8 +30,10 @@ const filtersState = {
     language: "all"
 };
 let favorites = [];
+let selectedMovies = []; // Pour la comparaison de films
 
 const FAVORITES_KEY = "favorites_v1";
+const COMPARATOR_KEY = "comparator";
 
 function getGenreNames(genreIds) {
     return genreIds
@@ -520,6 +522,150 @@ function createFavoriteButton(movie) {
 // Charger les favoris au chargement du module
 loadFavorites();
 
+// --- Comparaison de films ---
+function toggleMovieSelection(movie) {
+    const index = selectedMovies.findIndex(m => m.id === movie.id);
+    
+    if (index > -1) {
+        // Film déjà sélectionné, le supprimer
+        selectedMovies.splice(index, 1);
+    } else if (selectedMovies.length < 2) {
+        // Ajouter le film s'il y a de la place
+        selectedMovies.push(movie);
+    } else {
+        // Remplacer le dernier film sélectionné
+        selectedMovies[1] = movie;
+    }
+    
+    updateComparator();
+}
+
+function isMovieSelected(movieId) {
+    return selectedMovies.some(m => m.id === movieId);
+}
+
+function createComparisonCheckbox(movie) {
+    const label = document.createElement("label");
+    label.className = "comparison-checkbox";
+    
+    const input = document.createElement("input");
+    input.type = "checkbox";
+    input.checked = isMovieSelected(movie.id);
+    input.title = selectedMovies.length >= 2 && !isMovieSelected(movie.id) 
+        ? "Maximum 2 films pour la comparaison" 
+        : "Sélectionner pour comparer";
+    
+    input.addEventListener("change", () => {
+        toggleMovieSelection(movie);
+        input.checked = isMovieSelected(movie.id);
+    });
+    
+    label.appendChild(input);
+    label.appendChild(document.createTextNode("Comparer"));
+    return label;
+}
+
+function updateComparator() {
+    const comparatorEl = document.getElementById("comparator");
+    if (!comparatorEl) return;
+    
+    if (selectedMovies.length === 0) {
+        comparatorEl.innerHTML = "";
+        comparatorEl.style.display = "none";
+        return;
+    }
+    
+    displayComparator();
+}
+
+function displayComparator() {
+    const comparatorEl = document.getElementById("comparator");
+    if (!comparatorEl) return;
+    
+    comparatorEl.style.display = "block";
+    comparatorEl.innerHTML = "";
+    
+    if (selectedMovies.length === 0) {
+        return;
+    }
+    
+    const title = document.createElement("h2");
+    title.textContent = `Comparaison de ${selectedMovies.length} film${selectedMovies.length > 1 ? "s" : ""}`;
+    comparatorEl.appendChild(title);
+    
+    const table = document.createElement("table");
+    table.className = "comparison-table";
+    
+    // En-têtes
+    const headerRow = document.createElement("tr");
+    const headerCell = document.createElement("th");
+    headerCell.textContent = "Propriété";
+    headerRow.appendChild(headerCell);
+    
+    selectedMovies.forEach((movie, idx) => {
+        const th = document.createElement("th");
+        th.innerHTML = `
+            <div class="comparison-title">
+                <span>${movie.title}</span>
+                <button class="remove-comparison" data-id="${movie.id}" title="Retirer de la comparaison">✕</button>
+            </div>
+        `;
+        headerRow.appendChild(th);
+    });
+    
+    table.appendChild(headerRow);
+    
+    // Propriétés à comparer
+    const properties = [
+        { label: "Titre", key: "title" },
+        { label: "Année", fn: (m) => getYear(m) || "N/A" },
+        { label: "Note", key: "vote_average" },
+        { label: "Popularité", key: "popularity" },
+        { label: "Votes", fn: (m) => typeof m.vote_count === "number" ? m.vote_count.toLocaleString("fr-FR") : "N/A" },
+        { label: "Langue", fn: (m) => getLanguageLabel(m.original_language) },
+        { label: "Genres", fn: (m) => getGenreNames(m.genre_ids) || "N/A" },
+        { label: "Score personnalisé", fn: (m) => calculateScore(m).toFixed(2) }
+    ];
+    
+    properties.forEach(prop => {
+        const row = document.createElement("tr");
+        
+        const labelCell = document.createElement("td");
+        labelCell.className = "property-label";
+        labelCell.textContent = prop.label;
+        row.appendChild(labelCell);
+        
+        selectedMovies.forEach(movie => {
+            const cell = document.createElement("td");
+            const value = prop.key 
+                ? movie[prop.key] 
+                : (prop.fn ? prop.fn(movie) : "N/A");
+            cell.textContent = value;
+            row.appendChild(cell);
+        });
+        
+        table.appendChild(row);
+    });
+    
+    comparatorEl.appendChild(table);
+    
+    // Ajouter les écouteurs pour supprimer des films
+    document.querySelectorAll(".remove-comparison").forEach(btn => {
+        btn.addEventListener("click", (e) => {
+            const movieId = parseInt(btn.dataset.id);
+            selectedMovies = selectedMovies.filter(m => m.id !== movieId);
+            updateComparator();
+            // Rafraîchir l'affichage des films pour désélectionner la checkbox
+            const currentRoute = window.location.hash.slice(1) || "";
+            if (currentRoute === "classement") {
+                displayRanking();
+            } else {
+                displayMovies();
+            }
+        });
+    });
+}
+
 
 // 🔹 Affichage simple
 export async function displayMovies() {
@@ -565,6 +711,10 @@ export async function displayMovies() {
 
         const btn = createFavoriteButton(movie);
         div.querySelector('.poster-wrapper').appendChild(btn);
+
+        // Checkbox de comparaison
+        const compareCheckbox = createComparisonCheckbox(movie);
+        div.querySelector('.movie-info').appendChild(compareCheckbox);
 
         // Explication du score
         const expl = explainScore(movie);
@@ -634,6 +784,10 @@ export async function displayRanking() {
 
         const btn = createFavoriteButton(movie);
         div.querySelector('.poster-wrapper').appendChild(btn);
+
+        // Checkbox de comparaison
+        const compareCheckbox = createComparisonCheckbox(movie);
+        div.querySelector('.movie-info').appendChild(compareCheckbox);
 
         // Explication du score pour le classement
         const expl = explainScore(movie);
